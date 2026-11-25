@@ -6,6 +6,15 @@ function Smartphone({ hostId }: { hostId: string }) {
   useEffect(() => {
     let stream: MediaStream | null = null
     const peer = new Peer()
+    function tryCall() {
+      if (peer.open && stream) {
+        peer.call(hostId, stream)
+      }
+    }
+
+    peer.on('open', () => {
+      tryCall()
+    })
 async function startCamera() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -21,7 +30,7 @@ async function startCamera() {
         if (videoRef.current) {
           videoRef.current.srcObject = stream
         }
-
+        tryCall()
       } catch (error) {
         console.error('カメラの取得に失敗しました', error)
       }
@@ -54,13 +63,63 @@ async function startCamera() {
     </div>
   )
 }
+function VideoPanel({ stream }: { stream: MediaStream }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
 
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream
+      videoRef.current.play().catch((err) => console.error('再生エラー:', err))
+    }
+  }, [stream])
+
+  return (
+    <div className="relative [container-type:inline-size]">
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="w-full rounded bg-black"
+      />
+    </div>
+  )
+}
 function App() {
 const [peerId, setPeerId] = useState('')
+const [videos, setVideos] = useState<
+    { peerId: string; stream: MediaStream }[]
+  >([])
 const smartphoneUrl = `${window.location.origin}${import.meta.env.BASE_URL}?host=${peerId}`
 useEffect(() => {
     const peer = new Peer()
+peer.on('call', (call) => {
+      call.answer()
+let streamId: string | null = null
 
+      function removeVideo() {
+        if (streamId) {
+          setVideos((prev) =>
+            prev.filter((video) => video.stream.id !== streamId)
+          )
+        }
+      }
+      call.on('stream', (stream) => {
+streamId = stream.id
+        setVideos((prev) => [...prev, { peerId: call.peer, stream }])
+      const connection = call.peerConnection
+        connection.addEventListener('connectionstatechange', () => {
+          console.log(connection.connectionState)
+          if (
+            connection.connectionState === 'failed' ||
+            connection.connectionState === 'closed'
+          ) {
+            removeVideo()
+          }
+        })
+      })
+      call.on('close', removeVideo)
+    })
     peer.on('open', (id) => {
       setPeerId(id)
     })
@@ -93,8 +152,19 @@ return (
               />
             </a>
           </div>
+          <h2 className="mt-8 mb-4 text-xl font-bold">
+            接続中のスマホ：{videos.length}台
+          </h2>
         </div>
       )}
+      <div className="grid grid-cols-2 items-start gap-4 md:grid-cols-3 lg:grid-cols-4">
+        {videos.map((video) => (
+          <VideoPanel
+            key={video.stream.id}
+            stream={video.stream}
+          />
+        ))}
+      </div>
     </div>
   )
 }
